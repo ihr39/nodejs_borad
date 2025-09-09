@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="/main.css" rel="stylesheet">
+</head>
+<body class="grey-bg">
+    <%- include('nav.ejs') %>
+    <!-- <%= JSON.stringify(detail) %> -->
+    <div class="detail-bg">
+        <!-- /edit?_method=PUT이면 put으로 보낸다는 뜻 -->
+        <form method="post" action="/edit" class="form-box">
+            <h4>수정하기</h4>
+            <input type="hidden" value="<%= detail._id %>" name="_id">
+            <p>제목: <input value="<%= detail.title %>" name="title"></p>
+            <p>내용: <input value="<%= detail.content %>" name="content"></p>
+            <button type="submit">수정</button>
+        </form>
+    </div>
+    
+</body>
+</html>

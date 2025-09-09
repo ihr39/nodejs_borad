@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="/main.css" rel="stylesheet">
+</head>
+<body class="grey-bg">
+    <%- include('nav.ejs') %>
+
+    <form class="form-box" action="/join" method="post">
+        <h4>회원가입</h4>
+        <!-- passport 사용할 때 네임을 이렇게 맞춰야 잘 도착한다 -->
+        <input name="username">
+        <input name="password" type="password">
+        <button type="submit">가입</button>
+    </form>
+
+</body>
+</html>
