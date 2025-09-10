@@ -1,0 +1,18 @@
+# 환경 설정 파일 제외
+.env
+.env.local
+config/local.json
+
+# 로그 파일 제외
+logs/
+*.log
+
+# 빌드 결과물
+dist/
+build/
+
+# 모든 .tmp 파일 제외
+*.tmp  
+# npm 패키지 디렉터리 제외
+node_modules/  
+npm-debug.log*        

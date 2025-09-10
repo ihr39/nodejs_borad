@@ -1,5 +1,17 @@
 const express = require('express')
 const app = express()
+const { MongoClient, ObjectId } = require('mongodb')
+//--세션 라이브러리
+const session = require('express-session')
+const passport = require('passport')
+const LocalStrategy = require('passport-local')
+//--암호화
+const bcrypt = require('bcrypt')
+//-- session을 DB에 저장
+const MongoStore = require('connect-mongo')
+//--put/delete를 사용하고 싶을때
+const methodOverride = require('method-override')
+require('dotenv').config()
 
 //--css같은 파일을 자유롭게 사용하기 위해 서버에 등록
 app.use(express.static(__dirname+'/public'))
@@ -7,38 +19,43 @@ app.set('view engine','ejs') //--ejs setting
 //--request.body를 사용할 수 있게 하기 위한 선언
 app.use(express.json())
 app.use(express.urlencoded({extended:true}))
-//--put/delete를 사용하고 싶을때
-const methodOverride = require('method-override')
 app.use(methodOverride('_method'))
-
-//--세션 라이브러리
-const session = require('express-session')
-const passport = require('passport')
-const LocalStrategy = require('passport-local')
-
 app.use(passport.initialize())
 app.use(session({
   secret: '암호화에 쓸 비번',
   resave : false, //--유저가 요청할 때마다 갱신할건지
-  saveUninitialized : false //--로그인을 안해도 세션을 만들것인지
+  saveUninitialized : false, //--로그인을 안해도 세션을 만들것인지
+  cookie: {maxAge: 60 * 60 * 1000}, //--1시간동안 유지하게 설정/ 기본은 2주
+  store: MongoStore.create({
+    mongoUrl: process.env.DB_URL,
+    dbName: 'forum',
+  })
 }))
-
 app.use(passport.session()) 
 
-const { MongoClient, ObjectId } = require('mongodb')
-
 let db
-const url = 'mongodb+srv://imhyelyeong_db_user:OIp1vu5xZ4UUyWRS@froum.cj978t5.mongodb.net/?retryWrites=true&w=majority&appName=Froum'
+const url = process.env.DB_URL;
 new MongoClient(url).connect().then((client)=>{
     console.log('DB연결성공')
     db = client.db('forum') //--DB명
     //--DB에 연결된 후 서버에 접속되는 편이 낫다
-    app.listen(3000, () =>{
+    app.listen(process.env.PORT, () =>{
      console.log('http://localhost:3000/ 에서 서버 실행중')
     })
 }).catch((err)=>{
   console.log(err)
 })
+
+//--미들웨어(변수 3개 필요) []로 미들웨어 함수 여러개 넣을 수 있다
+function loginChk(request, response, next){
+    if(!request.user){
+        response.send("<script>alert('로그인하세요');location.href='/login'</script>")
+    }
+    next()//--미들웨어 실행 끝나고 다음으로 이동
+}
+
+//--하위 url도 모두 적용
+//app.use('/write',loginChk)//--이 코드 밑에 있는 API는 미들웨어를 적용
 
 app.get('/',(request, response)=>{
     //--__dirname: 현재 프로젝트 절대경로
@@ -77,27 +94,6 @@ app.get('/list', async (request,response)=>{
 app.get('/time',(requset, response)=>{
     var time = new Date().toTimeString().split(" ")[0]
     response.render('time.ejs',{time: time})
-})
-
-app.get('/write',(request,response)=>{
-    response.render('write.ejs')//--앞에/를 붙이니까 안나왔음
-})
-
-app.post('/add', async (request,response)=>{
-    console.log(request.body)
-
-    try{
-        if(request.body.title == '' ){
-            response.send('제목입력요구')
-        }else{
-            //--웬만하면 맞추는게 좋음
-            await db.collection('post').insertOne({title:request.body.title ,content:request.body.title})
-            response.redirect('/list')//-- 특정 url로 이동
-        }
-    }catch(e){
-        console.log(e)
-        response.status(500).send('서버 에러 남')
-    }
 })
 
 //--유저가/: 뒤에 아무 문자나 입력한다면
@@ -183,7 +179,7 @@ passport.use(new LocalStrategy(async (입력한아이디, 입력한비번, cb) =
         if (!result) {
             return cb(null, false, { message: '아이디 DB에 없음' })
         }
-        if (result.password == 입력한비번) {
+        if (await bcrypt.compare(입력한비번, result.password)) {
             return cb(null, result)
         } else {
             return cb(null, false, { message: '비번불일치' });
@@ -194,6 +190,26 @@ passport.use(new LocalStrategy(async (입력한아이디, 입력한비번, cb) =
     }
     //--passReqToCallback: 아이디 비번 제외 다른 것도 검증하고 싶을 때
 }))
+
+//--로그인 세션 만들기
+passport.serializeUser((user, done) => {
+    process.nextTick(() => {//--특정 코드를 비동기적으로 처리해줌
+        //--DB에 연결을 해야 DB에 발행됨 아니면 메모리에 저장됨
+        done(null, {username : user.username, id: user._id})
+    })
+})
+
+//--유저가 보낸 쿠키 분석 특정 API안에서만 사용하게 만들면 좀 더 효율적일듯
+passport.deserializeUser(async (user, done) => {
+    //--session document에 있는 정보만 가져오기 때문에 오래된 경우 달라질 가능성 있음=>세션에 적힌 유저정보 가져옴-회원정보 DB에 가져옴 그걸 넣음
+    let result = await db.collection('user').findOne({_id: new ObjectId(user.id)})
+    delete result.password //--password는 삭제하고 보냄
+    process.nextTick(() => {//--특정 코드를 비동기적으로 처리해줌
+        //--DB에 연결을 해야 DB에 발행됨 아니면 메모리에 저장됨
+        done(null, result)
+    })
+})
+//--이런 코드들 밑에서는 아무렇게나 request.user로 조회 가능
 
 app.get('/login',async (request, response)=>{
     response.render('login.ejs')
@@ -206,7 +222,7 @@ app.post('/login',async (request, response, next)=>{
         if(!user) return response.status(401).json(info.message)
         request.logIn(user, (err)=>{
             if(err) return next(err)
-            response.redirect('/')
+            response.redirect('/list')
         })
     })(request,response,next) //--비교작업 코드 실행
 })
@@ -216,13 +232,63 @@ app.get('/join',(request, response)=>{
 })
 
 app.post('/join', async (request, response)=>{
-    //console.log(request.body)
+    let result = await db.collection('user').findOne({username: request.body.username})
+    if(request.body.username == '' || request.body.password == '') 
+        response.status(400).send('<script>alert("아이디/비번을 입력하세요.");location.href="/join"</script>')
+    else if(result != null) 
+        response.status(400).send('<script>alert("이미 있는 아이디입니다");location.href="/join"</script>')
+    else if(request.body.password != request.body.password_chk) 
+        response.status(400).send("<script>alert('비밀번호가 틀립니다.');location.href='/join'</script>")
+    else{
+        let hash = await bcrypt.hash(request.body.password,10)
+        
+        try{
+            await db.collection('user').insertOne({username: request.body.username, password: hash})
+            response.redirect('/login')
+        }catch(e){
+            console.log(e)
+            response.status(500).send('회원가입 실패')
+        } 
+    }
+})
+
+app.get('/myPage',(requset, response)=>{
+    if(typeof requset.user == 'undefined') response.send("<script>alert('로그인 먼저 해주세요');location.href='/login'</script>")
+    else response.render('myPage.ejs',{username: requset.user.username})
+})
+
+app.get('/write',(request,response)=>{
+    if(typeof request.user == 'undefined') response.send("<script>alert('로그인 먼저 해주세요');location.href='/login'</script>")
+    else response.render('write.ejs')//--앞에/를 붙이니까 안나왔음
+})
+
+app.post('/add', async (request,response)=>{
     try{
-        if(request.body.username == '' || request.body.password == '') response.status(400).send('아이디/비번을 입력하세요.')
-        await db.collection('user').insertOne({username: request.body.username, password: request.body.password})
-        response.redirect('/login')
+        if(request.body.title == '' ){
+            response.send('제목입력요구')
+        }else{
+            //--웬만하면 맞추는게 좋음
+            await db.collection('post').insertOne({title:request.body.title ,content:request.body.title})
+            response.redirect('/list')//-- 특정 url로 이동
+        }
     }catch(e){
         console.log(e)
-        response.status(500).send('회원가입 실패')
-    } 
+        response.status(500).send('서버 에러 남')
+    }
+})
+
+app.get('/logout', async (requeset, response)=>{
+    try{
+        await requeset.session.destroy(function(e){
+            if(e){
+                console.log(e)
+                response.send("<script>alert('로그아웃 실패.')</script>")
+            }else{
+                response.redirect('/list')
+            }
+        })
+    }catch{
+        console.log(e)
+        response.status(500).send('로그아웃 도중 문제 발생')
+    }
 })
