@@ -10,7 +10,13 @@
     <!-- .ejs파일을 넣어라 ,후 {}에 데이터를 넣으면 데이터를 넣을 수 있다-->
 
     <%- include('nav.ejs') %>
-
+    <input type="text" name="search" class="search"> <button class="search-send">검색</button>
+    <script>
+        document.querySelector('.search-send').addEventListener('click',function(){
+            let value = document.querySelector('.search').value
+            location.href = '/search?page=1&val='+value
+        })
+    </script>
     <!-- 서버사이드 렌더링: <%= JSON.stringify(글목록) %> -->
     <div class="white-bg">
         <% for(let i = 0 ; i< 글목록.length; i++){ %>
@@ -18,7 +24,9 @@
                 <h4>
                     <a href="/detail/<%=글목록[i]._id%>"><%= 글목록[i].title %></a>
                     <!-- data-age="20"는 age를 20으로 데이터를 만들겠다 -->
-                    <span class="delete" data-id="<%=글목록[i]._id%>">🗑️</span>
+                    <% if(user== 글목록[i].user){ %>
+                        <span class="delete" data-id="<%=글목록[i]._id%>">🗑️</span>
+                    <% }%>
                 </h4>
                 <p><%= 글목록[i].content %></p>
             </div>
@@ -37,14 +45,14 @@
                 //--'body':JSON.stringify({a: 1})에 보낸건 request.body로 받음
                 //--fetch('/delete/홍길동') get으로 받아야함
                 //--새로고침 없이 할 수 있음 이걸 ajax라 함
-                fetch('/delete?_id='+e.target.dataset.id,{
+                fetch('/post/delete?_id='+e.target.dataset.id,{
                     'method':'DELETE'
                 })
                 .then((r)=>r.text())//--array/json은 .json을 붙여야함
-                .then((r)=>{ //console.log(r) 
+                .then((r)=>{ console.log(r) 
                     //--서버에서 html을 다 만들어서 보여줌(서버사이드렌더링)
                     //--서버에서 데이터만 가져옴 이걸 이용해 html을 생성(클라이언트 사이드 렌더링)
-                    e.target.parentElement.parentElement.style.display = 'none'
+                    if(r == 'OK') e.target.parentElement.parentElement.style.display = 'none'
                 })
             })
         }

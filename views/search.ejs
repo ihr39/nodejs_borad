@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="/main.css" rel="stylesheet">
+</head>
+<body class="grey-bg">
+    <!-- .ejs파일을 넣어라 ,후 {}에 데이터를 넣으면 데이터를 넣을 수 있다-->
+
+    <%- include('nav.ejs') %>
+    <input type="text" name="search" class="search"> <button class="search-send">검색</button>
+    <script>
+        document.querySelector('.search-send').addEventListener('click',function(){
+            let value = document.querySelector('.search').value
+            location.href = '/search?page=1&val='+value
+        })
+    </script>
+
+    <h4>검색결과</h4>
+    <!-- 서버사이드 렌더링: <%= JSON.stringify(글목록) %> -->
+    <div class="white-bg">
+        <% for(let i = 0 ; i< 글목록.length; i++){ %>
+            <div class="list-box">
+                <h4>
+                    <a href="/detail/<%=글목록[i]._id%>"><%= 글목록[i].title %></a>
+                </h4>
+                <p><%= 글목록[i].content %></p>
+            </div>
+        <% } %>
+    </div>
+</body>
+</html>

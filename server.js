@@ -26,16 +26,17 @@ app.use(session({
   resave : false, //--유저가 요청할 때마다 갱신할건지
   saveUninitialized : false, //--로그인을 안해도 세션을 만들것인지
   cookie: {maxAge: 60 * 60 * 1000}, //--1시간동안 유지하게 설정/ 기본은 2주
-  store: MongoStore.create({
+  store: MongoStore.create({//--세션을 db에 저장해주는 기능
     mongoUrl: process.env.DB_URL,
     dbName: 'forum',
   })
 }))
 app.use(passport.session()) 
 
+let connectDB = require('./database.js')
+
 let db
-const url = process.env.DB_URL;
-new MongoClient(url).connect().then((client)=>{
+connectDB.then((client)=>{
     console.log('DB연결성공')
     db = client.db('forum') //--DB명
     //--DB에 연결된 후 서버에 접속되는 편이 낫다
@@ -51,11 +52,22 @@ function loginChk(request, response, next){
     if(!request.user){
         response.send("<script>alert('로그인하세요');location.href='/login'</script>")
     }
-    next()//--미들웨어 실행 끝나고 다음으로 이동
+    else next()//--미들웨어 실행 끝나고 다음으로 이동
 }
 
 //--하위 url도 모두 적용
 //app.use('/write',loginChk)//--이 코드 밑에 있는 API는 미들웨어를 적용
+function dateChk(request,response,next){
+    console.log(new Date) 
+    next()
+}
+app.use('/list',dateChk)
+
+function emptyChk(request, response, next){
+    if(request.body.username == '' || request.body.password == ''){
+        response.send("<script>alert('아이디/비번을 작성해주세요.');location.href='/login'</script>")
+    }else next()
+}
 
 app.get('/',(request, response)=>{
     //--__dirname: 현재 프로젝트 절대경로
@@ -84,7 +96,7 @@ app.get('/list', async (request,response)=>{
             response.status(500).send('조회 도중 에러발생')
         }
         //--ejs를 사용해서 데이터를 꽂음
-        response.render('list.ejs',{글목록: result})
+        response.render('list.ejs',{글목록: result, user: request.user._id.toString() }) //--request.user._id는 ObjectId 타입임
     }catch(e){
         console.log(e)
         response.status(500).send('DB에러 발생')
@@ -101,7 +113,6 @@ app.get('/detail/:id', async (request,response)=>{
     try{
         //--request.params == i(detail/뒤에 붙은 값)
         let result = await db.collection('post').findOne({_id : new ObjectId(request.params.id) }) 
-        console.log(result)
         if(result == null){
             response.status(404).send('이상한 url 입력함')
         }
@@ -112,49 +123,9 @@ app.get('/detail/:id', async (request,response)=>{
     }
 })
 
-app.get('/edit/:id', async (request,response)=>{
-    try{
-        let detail = await db.collection('post').findOne({_id: new ObjectId(request.params.id)})
-        if(detail == null) response.status(500).send('수정할 데이터 없음')
-        response.render('edit.ejs',{detail:detail})
-    }catch(e){
-        console.log(e)
-        response.status(400).send('잘못된 url 접근')
-    }
-})
-
-app.post('/edit', async (request, response)=>{
-    //console.log(request.body)
-    
-    //--개별 수정은 updateOne/ 여러개 수정은 updateMany /filtering도 가능
-    //await db.collection('post').updateMany({like : {$ne: 10}}, {$inc: {like: 2}}) 
-
-    try{
-        if(request.body.title == '' || request.body.content == '') response.send('제목/내용 작성하세요')
-        else{
-            await db.collection('post').updateOne({_id: new ObjectId(request.body._id)}, 
-                                                    {$set: {title: request.body.title, content: request.body.content}})
-
-            response.redirect('/list')
-        }
-    }catch(e){
-        console.log(e)
-        response.status(500).send('수정 실패')
-    }
-    
-})
-
 app.get('/abc',(requset,response)=>{
     console.log('안녕')
     console.log(requset.query)//--requset.query는 ?뒤에 붙는 데이터를 가져옴
-})
-
-app.delete('/delete', async (requset,response)=>{
-    console.log(requset.query)
-
-    await db.collection('post').deleteOne({_id: new ObjectId(requset.query._id)})
-    //--ajax 사용할 때 redirect, render는 사용 안하는게 낫다
-    response.send('삭제완료')
 })
 
 app.get('/list/:page',async (request, response)=>{
@@ -215,7 +186,7 @@ app.get('/login',async (request, response)=>{
     response.render('login.ejs')
 })
 
-app.post('/login',async (request, response, next)=>{
+app.post('/login', emptyChk ,async (request, response, next)=>{
     passport.authenticate('local', (error, user, info)=>{
         //--user는 실패시 false
         if(error) return response.status(500).json(error)
@@ -231,11 +202,9 @@ app.get('/join',(request, response)=>{
     response.render('join.ejs')
 })
 
-app.post('/join', async (request, response)=>{
+app.post('/join', emptyChk , async (request, response)=>{
     let result = await db.collection('user').findOne({username: request.body.username})
-    if(request.body.username == '' || request.body.password == '') 
-        response.status(400).send('<script>alert("아이디/비번을 입력하세요.");location.href="/join"</script>')
-    else if(result != null) 
+    if(result != null) 
         response.status(400).send('<script>alert("이미 있는 아이디입니다");location.href="/join"</script>')
     else if(request.body.password != request.body.password_chk) 
         response.status(400).send("<script>alert('비밀번호가 틀립니다.');location.href='/join'</script>")
@@ -257,26 +226,6 @@ app.get('/myPage',(requset, response)=>{
     else response.render('myPage.ejs',{username: requset.user.username})
 })
 
-app.get('/write',(request,response)=>{
-    if(typeof request.user == 'undefined') response.send("<script>alert('로그인 먼저 해주세요');location.href='/login'</script>")
-    else response.render('write.ejs')//--앞에/를 붙이니까 안나왔음
-})
-
-app.post('/add', async (request,response)=>{
-    try{
-        if(request.body.title == '' ){
-            response.send('제목입력요구')
-        }else{
-            //--웬만하면 맞추는게 좋음
-            await db.collection('post').insertOne({title:request.body.title ,content:request.body.title})
-            response.redirect('/list')//-- 특정 url로 이동
-        }
-    }catch(e){
-        console.log(e)
-        response.status(500).send('서버 에러 남')
-    }
-})
-
 app.get('/logout', async (requeset, response)=>{
     try{
         await requeset.session.destroy(function(e){
@@ -292,3 +241,26 @@ app.get('/logout', async (requeset, response)=>{
         response.status(500).send('로그아웃 도중 문제 발생')
     }
 })
+
+app.use('/shop',require('./routes/shop.js')) //--미들웨어식으로 적용
+
+app.use('/board/sub',require('./routes/sub.js'))
+
+app.use('/post',require('./routes/post.js'))
+
+app.get('/search', async (request, response)=>{
+    let 검색조건 = [
+        {$search:{
+            index: 'title_index', //--인덱스 명
+            text: {query: request.query.val, path: 'title' } //--값 필드명
+        }}, 
+        //{$limit: 3},
+        //{$project: {title:1}},//--0은 숨겨 1은 보여줘
+
+    ]
+    //--정규식({$regex:})을 쓰면 느림 => 인덱스를 거의 못 씀
+    //--index를 만들면 빠르게 찾아줌 {$text : {$search: request.query.val} }
+    let result = await db.collection('post').aggregate(검색조건).toArray()
+    response.render('search.ejs',{글목록: result})
+})
+
