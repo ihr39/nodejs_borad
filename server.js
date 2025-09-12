@@ -11,6 +11,21 @@ const bcrypt = require('bcrypt')
 const MongoStore = require('connect-mongo')
 //--put/delete를 사용하고 싶을때
 const methodOverride = require('method-override')
+//--소켓통신
+const { createServer } = require('http')
+const { join } = require("path");
+const { Server } = require('socket.io')
+const server = createServer(app)
+const httpServer = createServer(app);
+const io = new Server(httpServer) 
+
+const sessionMiddleware = session({
+  secret: "changeit",
+  resave: true,
+  saveUninitialized: true,
+});
+app.use(sessionMiddleware);
+
 require('dotenv').config()
 
 //--css같은 파일을 자유롭게 사용하기 위해 서버에 등록
@@ -34,13 +49,21 @@ app.use(session({
 app.use(passport.session()) 
 
 let connectDB = require('./database.js')
+const { Socket } = require('dgram')
 
 let db
+ let changeStream
 connectDB.then((client)=>{
     console.log('DB연결성공')
     db = client.db('forum') //--DB명
+
+    //-- 딱 한번만 실행되는게 더 효율적임
+    let 조건 = {$match: {operationType : 'insert'}} //--.을 찍을거면 ''로 감싸야한다
+    //--collection을 실시간 변화 감지
+    changeStream = db.collection('post').watch(조건)
+
     //--DB에 연결된 후 서버에 접속되는 편이 낫다
-    app.listen(process.env.PORT, () =>{
+    httpServer.listen(process.env.PORT, () =>{
      console.log('http://localhost:3000/ 에서 서버 실행중')
     })
 }).catch((err)=>{
@@ -74,73 +97,27 @@ app.get('/',(request, response)=>{
     response.sendFile(__dirname+'/index.html') //--파일을 보냄
 })
 
-//--url/news로 들어가면 오늘 비옴이라는 문자가 나온다
-app.get('/news',(request, response)=>{
-    //--DB collection(하위 폴더명) 적고 작성
-    db.collection('post').insertOne({title: '어쩌구'})
-    //response.send('오늘 비옴')
-})
-
-app.get('/about', (request,response)=>{
-    response.sendFile(__dirname+'/myself.html')
-})
-
-app.get('/list', async (request,response)=>{
-    try{
-        //--await 다음 줄 실행하기 전에 기다려라/ 혹은 .then()
-        let result = await db.collection('post').find().toArray()
-        //--응답은 한번만 실행
-        //response.send(result[0].title) //--templet engein
-
-        if(result == null){
-            response.status(500).send('조회 도중 에러발생')
-        }
-        //--ejs를 사용해서 데이터를 꽂음
-        response.render('list.ejs',{글목록: result, user: request.user._id.toString() }) //--request.user._id는 ObjectId 타입임
-    }catch(e){
-        console.log(e)
-        response.status(500).send('DB에러 발생')
-    }
-})
-
-app.get('/time',(requset, response)=>{
-    var time = new Date().toTimeString().split(" ")[0]
-    response.render('time.ejs',{time: time})
-})
+app.post("/incr", (req, res) => {
+  const session = req.session;
+  session.count = (session.count || 0) + 1;
+  res.status(200).end("" + session.count);
+});
 
 //--유저가/: 뒤에 아무 문자나 입력한다면
 app.get('/detail/:id', async (request,response)=>{
     try{
         //--request.params == i(detail/뒤에 붙은 값)
         let result = await db.collection('post').findOne({_id : new ObjectId(request.params.id) }) 
+        let comment = await db.collection('comment').find({post_id : new ObjectId(request.params.id)}).toArray()
+        
         if(result == null){
             response.status(404).send('이상한 url 입력함')
         }
-        response.render('detail.ejs',{detail: result})
+        response.render('detail.ejs',{detail: result, comment: comment})
     }catch(e){
         console.log(e)
         response.status(404).send('이상한 url 입력함')
     }
-})
-
-app.get('/abc',(requset,response)=>{
-    console.log('안녕')
-    console.log(requset.query)//--requset.query는 ?뒤에 붙는 데이터를 가져옴
-})
-
-app.get('/list/:page',async (request, response)=>{
-    //--1~5번글을 찾아서 저장
-    //--.skip()은 성능이 안좋음 너무 많이 스킵하는건 안쓰는게 좋음
-    let result = await db.collection('post').find().skip((request.params.page - 1)*5).limit(5).toArray()
-    response.render('list.ejs',{글목록: result})
-})
-
-app.get('/list/next/:id',async (request, response)=>{
-    //--1~5번글을 찾아서 저장
-    //--.find({})에 조건을 넣어서 찾음 굉장히 빠름 단 123숫자가 아니라 다음으로 바꿔야함
-    //--정수로 하는게 더 좋음
-    let result = await db.collection('post').find({_id: {$gt: new ObjectId(request.params.id)}}).limit(5).toArray()
-    response.render('list.ejs',{글목록: result})
 })
 
 //--검사하는 로직
@@ -243,18 +220,21 @@ app.get('/logout', async (requeset, response)=>{
 })
 
 app.use('/shop',require('./routes/shop.js')) //--미들웨어식으로 적용
-
 app.use('/board/sub',require('./routes/sub.js'))
-
 app.use('/post',require('./routes/post.js'))
+app.use('/',require('./routes/etc.js'))
+app.use('/',require('./routes/list.js')) //--글목록
+
+let search_val = ""
 
 app.get('/search', async (request, response)=>{
+    search_val = request.query.val
     let 검색조건 = [
         {$search:{
             index: 'title_index', //--인덱스 명
-            text: {query: request.query.val, path: 'title' } //--값 필드명
+            text: {query: search_val, path: 'title' } //--값 필드명
         }}, 
-        //{$limit: 3},
+        {$limit: 3},
         //{$project: {title:1}},//--0은 숨겨 1은 보여줘
 
     ]
@@ -263,4 +243,136 @@ app.get('/search', async (request, response)=>{
     let result = await db.collection('post').aggregate(검색조건).toArray()
     response.render('search.ejs',{글목록: result})
 })
+
+app.get('/search/next/:id', async (request, response)=>{
+    let 검색조건 = [
+        {$search:{
+            index: 'title_index', //--인덱스 명
+            text: {query: search_val, path: 'title' } //--값 필드명
+        }}, 
+        {$skip: (request.params.id-1)*3}
+        //{$project: {title:1}},//--0은 숨겨 1은 보여줘
+
+    ]
+    //--정규식({$regex:})을 쓰면 느림 => 인덱스를 거의 못 씀
+    //--index를 만들면 빠르게 찾아줌 {$text : {$search: request.query.val} }
+    let result = await db.collection('post').aggregate(검색조건).toArray()
+    response.render('search.ejs',{글목록: result, page : request.params.id+1})
+})
+
+app.post('/comment', async (request, response)=>{
+    let param = {
+        post_id: new ObjectId(request.body.post_id), 
+        content: request.body.content, 
+        username: request.user.username, 
+        id: request.user._id,
+    }
+    try{
+        /** @type{ { title: string, content: string } } */
+        let result = await db.collection('comment').insertOne(param)
+        if(result){
+            param.resmsg = "OK"
+            response.send(param)
+        } 
+        else response.send('FAIL')
+    }catch(e){
+        console.log(e)
+        response.send('댓글 등록 중 에러 발생')
+    }
+    //response.redirect(request.get('Referrer')) //--이전페이지로 이동
+})
+
+app.get('/chat/request', async (request, response)=>{
+
+    let result = await db.collection('chatroom').find({member: new ObjectId(request.query.orther_id)}).toArray()
+    if(result.length < 1 ){
+        await db.collection('chatroom').insertOne({
+            member: [request.user._id, new ObjectId(request.query.orther_id)], //--array로 저장함
+            //other_id : new ObjectId(request.query.orther_id),
+            orther_username : request.query.orther_username,
+            //my_id : request.user._id,
+            my_username: request.user.username,
+            date: new Date()
+        })
+    }
+    response.redirect('/chat/list')
+})
+
+app.get('/chat/list', async (request,response)=>{
+    let result = await db.collection('chatroom').find({member: request.user._id}).toArray()
+    response.render('chat.ejs',{chatList: result})
+})
+
+app.get('/chat/detail/:id', async (request, response)=>{
+    if(!request.user) response.send('<script>alert("로그인 해주세요.");location.href="/login"</script>')
+    else{
+        if(!await db.collection('chatroom').findOne({member: request.user._id, _id: new ObjectId(request.params.id)}))
+            response.send('<script>alert("권한이 없습니다.");location.href="/list"</script>')
+        else{
+            let result = await db.collection('chatroom').findOne({_id: new ObjectId(request.params.id)})
+            let result2 = await db.collection('chat').find({room: new ObjectId(request.params.id)}).toArray()
+            response.render('chatDetail.ejs',{data:[{chatRoomInfo: result},{chatContent: result2}]})
+        }
+    }
+})
+
+// io.on('connection',(socket)=>{
+    
+//     //--유저가 보낸 데이터
+//     socket.on('age',(data)=>{
+//         console.log('유저가 보낸 데이터: ', data)
+//         io.emit('name','kim')
+//     })
+
+//     socket.on('ask-join',(data)=>{
+//         //--룸에 있는 사용자에게만 메세지를 보낼 수 있게 함
+//         socket.join(data)
+//     })
+
+//     socket.on('message',(data)=>{
+//         io.to(data.room).emit('broadcast',data.msg)
+//     })
+// })
+
+io.engine.use(sessionMiddleware);
+io.on('connection',(socket)=>{
+    console.log(socket.request.session)
+    if(!socket.request.session) socket.response.send("<script>alert('로그인 해주세요.);location.href='/login'</script>")
+    else {
+        var send_user = socket.request.session.passport.user.id;
+        socket.on('chat',async (data)=>{
+            let param = {
+                room: new ObjectId(data.room),
+                content: data.content,
+                send_user: new ObjectId(send_user),
+                data: new Date()
+            }
+            socket.join(data.room)
+            await db.collection('chat').insertOne(param)
+
+            io.to(data.room).emit('data',param)
+        })
+    }
+})
+
+//-- server sent event (서버에서 유저에게 실시간으로 데이터를 보내줌)
+app.get('/stream/list',(request, response)=>{
+    response.writeHead(200, {
+        "Connection": "keep-alive",
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+    })
+
+    changeStream.on('change',(result)=>{
+        console.log(result.fullDocument)
+        response.write('event: msg\n')
+        response.write(`data: ${JSON.stringify(result.fullDocument)}\n\n`)
+    })
+    // setInterval(()=>{
+    //     //--이 형식 그대로 사용 
+    //     response.write('event: msg\n')
+    //     response.write('data: "바보"\n\n')
+    // },1000)
+})
+
 

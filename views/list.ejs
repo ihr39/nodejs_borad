@@ -10,11 +10,12 @@
     <!-- .ejs파일을 넣어라 ,후 {}에 데이터를 넣으면 데이터를 넣을 수 있다-->
 
     <%- include('nav.ejs') %>
-    <input type="text" name="search" class="search"> <button class="search-send">검색</button>
+    <input type="text" name="search" class="search"> <button class="search-send" type="button">검색</button>
     <script>
         document.querySelector('.search-send').addEventListener('click',function(){
             let value = document.querySelector('.search').value
             location.href = '/search?page=1&val='+value
+            //fetch('/search?page=1&val='+value,{method:'GET'})
         })
     </script>
     <!-- 서버사이드 렌더링: <%= JSON.stringify(글목록) %> -->
@@ -24,23 +25,27 @@
                 <h4>
                     <a href="/detail/<%=글목록[i]._id%>"><%= 글목록[i].title %></a>
                     <!-- data-age="20"는 age를 20으로 데이터를 만들겠다 -->
-                    <% if(user== 글목록[i].user){ %>
+                    <% if(user == 글목록[i].user){ %>
                         <span class="delete" data-id="<%=글목록[i]._id%>">🗑️</span>
-                    <% }%>
+                    <% } %>
                 </h4>
                 <p><%= 글목록[i].content %></p>
             </div>
         <% } %>
     </div>
 
-    <a href="/list/next/<%=글목록[글목록.length -1 ]._id%>">다음</a>
-
+    <div class="page">
+        <% for(var i = 0; i < pageCnt ; i++ ){ %>
+            <a class="pageNum" href="/list/<%=i+1%>"><%= i+1 %></a>
+        <% } %>
+        <a href="/list/next/<%=글목록[글목록.length -1 ]._id%>" class="next">다음</a>
+    </div>
     <script>
         //console.log(document.querySelectorAll('.delete').length)
         //console.log('<%=글목록[0]._id%>')
         //--해당 기능을 게시글 갯수만큼 만듦
         for(var i=0; i< '<%=글목록.length%>'; i++){
-            document.querySelectorAll('.delete')[i].addEventListener('click',function(e){
+            if(document.querySelectorAll('.delete')[i] ?? '' != '') document.querySelectorAll('.delete')[i].addEventListener('click',function(e){
                 //console.log(e.target.dataset.id)//--클릭한 곳의 데이터를 가져와라
                 //--'body':JSON.stringify({a: 1})에 보낸건 request.body로 받음
                 //--fetch('/delete/홍길동') get으로 받아야함
@@ -71,6 +76,17 @@
 
         })
 */
+    </script>
+
+    <script>
+        //--SSE연결
+        let eventSource = new EventSource('/stream/list')
+        eventSource.addEventListener('msg',function(e){
+            console.log(e.data)
+            let 가져온거 = JSON.parse(e.data) //--key쪽에 ""가 붙어있음 => 문자열로 취급함 이걸 json으로 바꿔줌
+            document.querySelector('.white-bg').insertAdjacentHTML("afterbegin",
+            `<div class="list-box"><h4><a href="/detail/${가져온거._id}">${가져온거.title}</a></h4><p>${가져온거.content}</p></div>`)
+        })
     </script>
 </body>
 </html>

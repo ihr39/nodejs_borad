@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="/main.css" rel="stylesheet">
+</head>
+<body class="grey-bg">
+    <!-- .ejs파일을 넣어라 ,후 {}에 데이터를 넣으면 데이터를 넣을 수 있다-->
+
+    <%- include('nav.ejs') %>
+    <!-- <%= JSON.stringify(chatList) %> -->
+    <div class="white-bg">
+        <h4 style="padding: 20px 20px 0px 20px;">채팅방</h4>
+        <hr>
+        <% for(var i = 0 ; i < chatList.length ; i++ ){ %>
+            <div class="chatRoom">
+                <a href="/chat/detail/<%=chatList[i]._id%>"><strong><%= chatList[i].orther_username %>님과의 채팅방</strong></a>
+                <p style="margin-top: 0px; color: gray;">채팅방 설명</p>
+            </div>
+        <% } %>
+    </div>
+</body>
+</html>

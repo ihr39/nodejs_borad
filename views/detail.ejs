@@ -10,11 +10,57 @@
     <%- include('nav.ejs') %>
     <!-- <%= JSON.stringify(detail) %> -->
     <div class="detail-bg">
-        <h4><%= detail.title %></h4>
+        <h4>
+            <%= detail.title %>
+            <button type="button" class="btnChat">채팅</button>
+        </h4>
         <p><%= detail.content %></p>
         <img src=" <%=detail.img%> ">
 
         <a href="/post/edit/<%= detail._id %>">✏️수정</a>
+
+        <hr style="margin-top: 60px;">
+        <div class="comment">
+            <% for(var i = 0 ; i < comment.length ; i++){ %>
+                <p><strong><%=comment[i].username%></strong> <%=comment[i].content%></p>
+            <% } %>
+        </div>
+        <form action="/comment" method="post">
+            <input type="hidden" name="post_id" value="<%= detail._id %>">
+            <input type="text" name="content" class="content">
+            <button type="button" class="btnComment">작성</button>
+        </form>
+
+        <script>
+            document.querySelector('.btnComment').addEventListener('click',()=>{
+                let post_id = document.getElementsByName('post_id')[0].value
+                let content = document.getElementsByName('content')[0].value
+                
+                fetch('/comment',{method:'POST',
+                    headers:{'Content-Type': 'application/json'},
+                    body: JSON.stringify({post_id: post_id, content: content})
+                }).then((r)=>r.json())
+                .then((r)=>{
+                    console.log(r)
+                    var onP = document.createElement('p')
+                    var onStrong = document.createElement('strong')
+                    onStrong.textContent = r.username //-- 텍스트를 넣음 (요소+text로 하면 문자열로 변환)
+                    onP.appendChild(onStrong) //-- p요소에 strong 요소 추가
+                    onP.appendChild(document.createTextNode(' '+r.content)) //--댓글 텍스트 추가
+
+                    if(r.resmsg == 'OK'){
+                        document.querySelector('.comment').appendChild(onP)
+                        document.querySelector('.content').value = ''
+                    }else{
+                        alert('댓글 작성 실패')
+                    }
+                })
+            })
+
+            document.querySelector('.btnChat').addEventListener('click',(e)=>{
+                location.href="/chat/request?orther_id=<%= detail.user %>&orther_username=<%= detail.username %>"
+            })
+        </script>
     </div>
 
 </body>
